@@ -11,85 +11,11 @@ from scipy.integrate import solve_ivp
 import vibrations as vib
 
 from dataclasses import dataclass, field, asdict
-import ipywidgets as widgets
+# import ipywidgets as widgets
 import matplotlib.pyplot as plt
 from IPython.display import display, clear_output
 
 ## freevisc
-#Input and system parameters
-
-# Basic integration parameters
-t_init = 0                          # [s] initial time of integration
-N_Td = 15                           # [-] number of damped periods for integration
-N_sa = 1e2                          # [-] number of samples per damped period
-
-# Initial conditions  
-x_0 = 0.1                           # [m] initial displacement in t_init
-dx_0 = 0                            # [m s^{-2}] initial velocity in t_init
-
-# Physical system parameters
-m1 = 16                             # [kg] mass
-k1 = 348                            # [kg s^{-2}] (linear) stiffness constant
-c1 = 0.0501 * 2 * np.sqrt(m1 * k1)  # [kg s^{-1}] viscous damping constant
-
-
-# System vibration parameters
-omega_0 = np.sqrt(k1 / m1)          # [rad s^{-1}] undamped angular natural frequency
-f_0 = omega_0 / (2 * np.pi)         # [Hz] undamped natural frequency
-delta = c1 / (2 * m1)               # [s^{-1}] rate of exponential decay / rise
-zeta_0 = delta / omega_0            # [-] damping ratio
-
-if zeta_0 < 1:
-    omega_d = omega_0 * np.sqrt(    # [rad s^{-1}] damped angular natural frequency
-        1 - zeta_0**2
-    )  
-    f_d = omega_d / (2 * np.pi)     # [Hz] damped natural frequency
-    T_d = 1 / f_d                   # [s] period of free damped response
-
-    t_end = T_d * N_Td              # [s] end time of integration
-    t_eval = np.linspace(t_init, t_end, round((t_end - t_init) / T_d * N_sa))
-else:
-    omega_d = 0
-    f_nfd = 0
-    T_d = np.inf
-
-    t_end = 2 * N_Td / delta
-    t_eval = None
-
-c_cr = 2 * np.sqrt(m1 * k1)         # [kg s^{-1}] critical damping constant
-
-
-# System integration
-
-# Initial conditions
-y_0 = [x_0, dx_0]                        # Initial state vector
-
-# Forces acting on the mass. Use `functools.partial` to assign some (but not
-# all) of the arguments.
-f_load = vib.f_free  # Free vibration
-f_spring = partial(vib.f_spring, k=k1)   # Linear spring: k*x
-f_damp = partial(vib.f_visc, c=c1)       # Linear viscous damper: c * dx/dt
-
-
-# Call the integrator
-soln = solve_ivp(
-    vib.system_1dof,
-    [t_init, t_end],
-    y_0,
-    t_eval=t_eval,
-    args=(m1, f_load, f_spring, f_damp),
-    rtol=1e-12,
-    atol=1e-12,
-)
-
-
-# Visualisation
-
-t, y = soln.t, soln.y  # Results
-
-        
-
-
 # freevisc dataclass
 @dataclass
 class FreeviscSystem:
@@ -182,89 +108,6 @@ class FreeviscSystem:
         )
         self.y = self.soln.y
 
-# freevisc plots
-# Time domain response - displacement
-fig, ax = plt.subplots(1, 1, figsize=(6, 4), dpi=100)
-ax.grid()
-ax.plot(t, y[0, :], "k", linewidth=2)
-plt.scatter(t_init, x_0, s=100, c="w", marker="o", edgecolors="C2", linewidths=2)
-plt.text(t_init, x_0, "IC: [$t_0$ = {:.2g}s, $x_0$ = {:.2g}m]".format(t_init, x_0))
-if zeta_0 < 1:  # Exponential decay for undamped systems
-    y_damp = np.sqrt(y_0[0] ** 2 + ((y_0[0] * delta + y_0[1]) / omega_d) ** 2)
-    y_delta = y_damp * np.exp(-delta * t)
-    ax.plot(t, y_delta, "r--", linewidth=2)
-    ax.plot(t, -y_delta, "r--", linewidth=2)
-ax.set_xlabel("Time (s)")
-ax.set_ylabel("Displacement (m)")
-ax.set_title("Time domain response of the 1 DOF system")
-fig.tight_layout()
-plt.show()
-
-
-# Time domain response - disp, vel, acc
-ddy = vib.system_1dof(t, y, m1, f_load, f_spring, f_damp)[1]
-
-fig, axs = plt.subplots(3, 1, sharex=True, figsize=(6, 6), dpi=100)
-[axs[i].grid() for i in range(axs.size)]
-axs[0].plot(t, y[0, :], "k")
-axs[0].set_ylabel("$x$ (m)")
-axs[1].plot(t, y[1, :], "k")
-axs[1].set_ylabel("$\\frac{dx}{dt}$ (ms$^{-1}$)")
-axs[2].plot(t, ddy, "k")
-axs[2].set_ylabel("$\\frac{d^2x}{dt^2}$ (ms$^{-2}$)")
-axs[2].set_xlabel("Time (s)")
-fig.suptitle("Displacement, velocity and acceleration responses")
-fig.tight_layout()
-plt.show()
-
-
-# State space response
-fig, ax = plt.subplots(1, 1, figsize=(6, 4), dpi=100)
-ax.grid()
-ax.plot(y[0, :], y[1, :], "k", linewidth=2)
-ax.scatter(y[0, 0], y[1, 0], s=100, c="w", marker="o", edgecolors="C2", linewidths=2)
-plt.text(
-    y[0, 0],
-    y[1, 0],
-    "IC: [$x_0$ = {:.2g}s, $v_0$ = {:.2g}m]".format(y[0, 0], y[1, 0]),
-    verticalalignment="bottom",
-    horizontalalignment="right",
-)
-ax.set_xlabel("Displacement (m)")
-ax.set_ylabel("Velocity (ms$^{-1}$)")
-ax.set_title("Response of the 1 DOF system in the state space")
-fig.tight_layout()
-plt.show()
-
-
-# Forces in the time domain
-fig, ax = plt.subplots(1, 1, figsize=(6, 4), dpi=100)
-ax.grid()
-ax.plot(t, f_load(t), "r", label="External forcing")
-ax.plot(t, f_spring(y[0, :]), "g", label="Spring force")
-ax.plot(t, f_damp(y[1, :]), "b", label="Damping force")
-ax.set_xlabel("Time (s)")
-ax.set_ylabel("Force (N)")
-ax.legend()
-fig.tight_layout()
-plt.show()
-
-
-# Component forces
-fig, axs = plt.subplots(2, 2, figsize=(6, 4), dpi=100)
-[axs.ravel()[i].grid() for i in range(axs.size)]
-axs[0, 0].plot(y[0, :], f_spring(y[0, :]), "k", linewidth=2)
-axs[0, 0].set_ylabel("Spring force (N)")
-axs[0, 1].plot(y[1, :], f_spring(y[0, :]), "k", linewidth=2)
-axs[1, 0].plot(y[0, :], f_damp(y[1, :]), "k", linewidth=2)
-axs[1, 0].set_xlabel("Displacement (m)")
-axs[1, 0].set_ylabel("Dashpot force (N)")
-axs[1, 1].plot(y[1, :], f_damp(y[1, :]), "k", linewidth=2)
-axs[1, 1].set_xlabel("Velocity (ms$^{-1}$)")
-fig.tight_layout()
-plt.show()
-
-
 # freevisc plotter
 class FreeviscPlotter:
     def __init__(self):
@@ -353,76 +196,6 @@ class FreeviscPlotter:
         plt.show()
 
 ## freefric
-# Input and system parameters
-
-# Basic integration parameters
-t_init = 0                             # [s] initial time of integration
-N_td = 7                               # [-] number of damped periods for integration
-N_sa = 1e2                             # [-] number of samples per damped period
-
-# Initial conditions
-x_0 = 0.001                            # [m] initial displacement in t_init
-dx_0 = 0                               # [m s^{-2}] initial velocity in t_init
-
-# General parameters
-g = 9.81                               # [m s^{-2}] gravitational acceleration
-
-# Physical system parameters
-m1 = 8                                 # [kg] mass
-k1 = 4000                              # [kg s^{-2}] (linear) stiffness constant
-
-
-# Friction model parameters
-mu = 0.0019                            # [-] coefficient of friction
-
-F_reach = 0.99                         # [-] portion of F_f to be reached in V_reach
-V_reach = 1e-4                         # [m s^{-1}] velocity to reach F_reach portion of F_f
-alpha = np.arctanh(F_reach) / V_reach  # [s m^{-1}] scaling factor in tanh function
-
-eps = 1e-4                             # [-] ?
-
-
-# System vibration parameters
-omega_0 = np.sqrt(k1 / m1)             # [rad s^{-1}] undamped angular natural frequency
-f_nf0 = omega_0 / (2 * np.pi)          # [Hz] undamped natural frequency
-T_0 = 1 / f_nf0                        # [s] undamped period
-F_f = abs(m1 * g * mu)                 # [N] magnitude of friction force
-dx_1T = 4 * F_f / k1                   # [m] period reduction in T_0
-
-t_end = T_0 * N_td                     # [s] end time of integration
-
-
-# System integration
-
-# Initial conditions
-y_0 = [x_0, dx_0]                               # Initial state vector
-
-# Forces acting on the mass. Use `functools.partial` to assign some (but not
-# all) of the arguments.
-f_load = vib.f_free                             # Free vibration
-f_spring = partial(vib.f_spring, k=k1)         # Linear spring: k*x
-f_damp = partial(vib.f_friction_sign, F_f=F_f)  # Friction model
-# Alternatively, for `tanh` or `sqrt` models:
-# f_damp = partial(vib.f_friction_tanh, alpha=alpha, F_f=F_f)
-# f_damp = partial(vib.f_friction_sqrt, F_f=F_f)
-
-
-# Call the integrator
-soln = solve_ivp(
-    vib.system_1dof,
-    [t_init, t_end],
-    y_0,
-    args=(m1, f_load, f_spring, f_damp),
-    rtol=1e-8,
-    atol=1e-8,
-)
-
-
-# Visualisation
-
-t, y = soln.t, soln.y # Results
-
-# freefric dataclass
 @dataclass
 class FreefricSystem:
     """Dataclass containing the freefric system parameters and solution"""
@@ -500,85 +273,6 @@ class FreefricSystem:
         )
         self.y = self.soln.y
 
-# freefric plots
-# Time domain response - displacement
-fig, ax = plt.subplots(1, 1, figsize=(6, 4), dpi=100)
-ax.grid()
-ax.plot(t, y[0, :], "k", linewidth=2)
-plt.scatter(t_init, x_0, s=100, c="w", marker="o", edgecolors="C2", linewidths=2)
-plt.text(t_init, x_0, "IC: [$t_0$ = {:.2g}s, $x_0$ = {:.2g}m]".format(t_init, x_0))
-ax.set_xlabel("Time (s)")
-ax.set_ylabel("Displacement (m)")
-ax.set_title("Time domain response of the 1 DOF system")
-fig.tight_layout()
-plt.show()
-
-
-# Time domain response - disp, vel, acc
-ddx = np.zeros(y.shape[1])
-for i in range(y.shape[1]):
-    dy = vib.system_1dof(t[i], y[:, i], m1, f_load, f_spring, f_damp)
-    ddx[i] = dy[1]
-
-fig, axs = plt.subplots(3, 1, sharex=True, figsize=(6, 6), dpi=100)
-[axs[i].grid() for i in range(axs.size)]
-axs[0].plot(t, y[0, :], "k")
-axs[0].set_ylabel("$x$ (m)")
-axs[1].plot(t, y[1, :], "k")
-axs[1].set_ylabel("$\\frac{dx}{dt}$ (ms$^{-1}$)")
-axs[2].plot(t, ddx, "k")
-axs[2].set_ylabel("$\\frac{d^2x}{dt^2}$ (ms$^{-2}$)")
-axs[2].set_xlabel("Time (s)")
-fig.suptitle("Displacement, velocity and acceleration responses")
-fig.tight_layout()
-plt.show()
-
-
-# State space response
-fig, ax = plt.subplots(1, 1, figsize=(6, 4), dpi=100)
-ax.grid()
-ax.plot(y[0, :], y[1, :], "k", linewidth=2)
-ax.scatter(y[0, 0], y[1, 0], s=100, c="w", marker="o", edgecolors="C2", linewidths=2)
-plt.text(
-    y[0, 0],
-    y[1, 0],
-    "IC: [$x_0$ = {:.2g}s, $v_0$ = {:.2g}m]".format(y[0, 0], y[1, 0]),
-    verticalalignment="bottom",
-    horizontalalignment="right",
-)
-ax.set_xlabel("Displacement (m)")
-ax.set_ylabel("Velocity (ms$^{-1}$)")
-ax.set_title("Response of the 1 DOF system in the state space")
-fig.tight_layout()
-plt.show()
-
-
-# Forces in the time domain
-fig, ax = plt.subplots(1, 1, figsize=(6, 4), dpi=100)
-ax.grid()
-ax.plot(t, f_load(t), "r", label="External forcing")
-ax.plot(t, f_spring(y[0, :]), "g", label="Spring force")
-ax.plot(t, f_damp(y[1, :]), "b", label="Damping force")
-ax.set_xlabel("Time (s)")
-ax.set_ylabel("Force (N)")
-ax.legend()
-fig.tight_layout()
-plt.show()
-
-
-# Component forces
-fig, axs = plt.subplots(2, 2, figsize=(6, 4), dpi=100)
-[axs.ravel()[i].grid() for i in range(axs.size)]
-axs[0, 0].plot(y[0, :], f_spring(y[0, :]), "k", linewidth=2)
-axs[0, 0].set_ylabel("Spring force (N)")
-axs[0, 1].plot(y[1, :], f_spring(y[0, :]), "k", linewidth=2)
-axs[1, 0].plot(y[0, :], f_damp(y[1, :]), "k", linewidth=2)
-axs[1, 0].set_xlabel("Displacement (m)")
-axs[1, 0].set_ylabel("Dashpot force (N)")
-axs[1, 1].plot(y[1, :], f_damp(y[1, :]), "k", linewidth=2)
-axs[1, 1].set_xlabel("Velocity (ms$^{-1}$)")
-fig.tight_layout()
-plt.show()
 
 # freefric plotter
 class FreefricPlotter:
@@ -669,76 +363,6 @@ class FreefricPlotter:
 
 
 ##constforce
-# Input and system parameters
-
-# Basic integration parameters
-t_init = 0                         # [s] initial time of integration
-t_end = 6                          # [s] end time of integration
-
-# Initial conditions
-x_0 = 0                            # [m] initial displacement in t_init
-dx_0 = 0                           # [m s^{-2}] initial velocity in t_init
-
-# Excitation parameters
-F_0 = 1                            # [N] magnitude of constant force
-t_F0 = 1                           # [N] start time of constant force
-
-# Physical system parameters
-m1 = 8                             # [kg] mass
-k1 = 4000                          # [kg s^{-2}] (linear) stiffness constant
-c1 = 11                            # [kg s^{-1}] viscous damping constant
-
-
-# System vibration parameters
-omega_0 = np.sqrt(k1 / m1)         # [rad s^{-1}] undamped angular natural frequency
-f_nf0 = omega_0 / (2 * np.pi)      # [Hz] undamped natural frequency
-delta = c1 / (2 * m1)              # [s^{-1}] rate of exponential decay / rise
-zeta_0 = delta / omega_0           # [-] damping ratio
-
-if zeta_0 < 1:
-    omega_d = omega_0 * np.sqrt(   # [rad s^{-1}] damped angular natural frequency
-        1 - zeta_0**2
-    )  
-    f_nfd = omega_d / (2 * np.pi)  # [Hz] damped natural frequency
-    T_d = 1 / f_nfd                # [s] period of free damped response
-else:
-    omega_d = 0
-    f_nfd = 0
-    T_d = np.inf
-
-c1cr = 2 * np.sqrt(m1 * k1)        # [kg s^{-1}] critical damping constant
-
-
-# System integration
-
-# Initial conditions
-y_0 = [x_0, dx_0]                        # Initial state vector
-
-# Forces acting on the mass. Use `functools.partial` to assign some (but not
-# all) of the arguments.
-f_load = partial(                        # External load: constant force after time delay
-    vib.f_const, F_0=F_0, t_F0=t_F0
-) 
-f_spring = partial(vib.f_spring, k1=k1)  # Linear spring: k*x
-f_damp = partial(vib.f_visc, c1=c1)      # Linear viscous damper: c * dx/dt
-
-
-# Call the integrator
-soln = solve_ivp(
-    vib.system_1dof,
-    [t_init, t_end],
-    y_0,
-    args=(m1, f_load, f_spring, f_damp),
-    rtol=1e-12,
-    atol=1e-12,
-)
-
-
-# Visualisation
-
-t, y = soln.t, soln.y  # Results
-
-# constforce dataclass
 @dataclass
 class ConstforceSystem:
     """Dataclass containing the constforce system parameters and solution"""
@@ -825,52 +449,9 @@ class ConstforceSystem:
         )
         self.y = self.soln.y
 
-# constforce plots
-# Time domain response - displacement
-fig, ax = plt.subplots(1, 1, figsize=(6, 4), dpi=100)
-ax.grid()
-ax.plot(t, y[0, :], "k", linewidth=2, label="Dynamic response")
-ax.plot(t, f_load(t) / k1, "r--", linewidth=2, label="Static response")
-plt.scatter(t_init, x_0, s=100, c="w", marker="o", edgecolors="C2", linewidths=2)
-plt.text(t_init, x_0, "IC: [$t_0$ = {:.2g}s, $x_0$ = {:.2g}m]".format(t_init, x_0))
-ax.set_xlabel("Time (s)")
-ax.set_ylabel("Displacement (m)")
-ax.set_title("Time domain response of the 1 DOF system")
-ax.legend()
-fig.tight_layout()
-plt.show()
 
-
-# Time domain response - disp, vel, acc
-ddy = vib.system_1dof(t, y, m1, f_load, f_spring, f_damp)[1]
-
-fig, axs = plt.subplots(3, 1, sharex=True, figsize=(6, 6), dpi=100)
-[axs[i].grid() for i in range(axs.size)]
-axs[0].plot(t, y[0, :], "k")
-axs[0].set_ylabel("$x$ (m)")
-axs[1].plot(t, y[1, :], "k")
-axs[1].set_ylabel("$\\frac{dx}{dt}$ (ms$^{-1}$)")
-axs[2].plot(t, ddy, "k")
-axs[2].set_ylabel("$\\frac{d^2x}{dt^2}$ (ms$^{-2}$)")
-axs[2].set_xlabel("Time (s)")
-fig.suptitle("Displacement, velocity and acceleration responses")
-fig.tight_layout()
-plt.show()
-
-# Forces in the time domain
-fig, ax = plt.subplots(1, 1, figsize=(6, 4), dpi=100)
-ax.grid()
-ax.plot(t, f_load(t), "r", label="External forcing")
-ax.plot(t, f_spring(y[0, :]), "g", label="Spring force")
-ax.plot(t, f_damp(y[1, :]), "b", label="Damping force")
-ax.set_xlabel("Time (s)")
-ax.set_ylabel("Force (N)")
-ax.legend()
-fig.tight_layout()
-plt.show()
 
 # constforce plotter
-
 class ConstforcePlotter:
     """Plotting class for the constforce system"""
     def __init__(self):
@@ -923,3 +504,89 @@ class ConstforcePlotter:
         ax.legend()
         fig.tight_layout()
         plt.show()
+
+# widgets
+def update_plots(x_0, dx_0, m1, k1, c1):
+    with plot_output:
+        clear_output(wait=True) # Clear the previous output before displaying and updating plots
+
+        params = FreeviscSystem(x_0=x_0, dx_0=dx_0, m1=m1, k1=k1, c1=c1)
+
+        # Get parameters for plotting
+        t = params.soln.t
+        y = params.y
+        t_init = params.t_init
+        x_0 = params.x_0
+        zeta_0 = params.zeta_0
+        delta = params.delta
+        omega_d = params.omega_d
+        y_0 = [x_0, params.dx_0]  # Initial state vector
+
+        f_damp = params.f_damp
+        f_spring = params.f_spring
+        f_load = params.f_load
+        
+        # Create an instance of the plotting class
+        plotter = FreeviscPlotter()
+
+        # Call plotting functions with extracted parameters based on checkbox states
+        if time_domain_response_checkbox.value:
+            plotter.plot_time_domain_response(t, y, t_init, x_0, y_0, zeta_0, delta, omega_d)
+        if displacement_velocity_acceleration_checkbox.value:
+            plotter.plot_displacement_velocity_acceleration(t, y, m1, f_load, f_spring, f_damp)
+        if state_space_response_checkbox.value:
+            plotter.plot_state_space_response(y)
+        if forces_in_time_domain_checkbox.value:
+            plotter.plot_forces_in_time_domain(t, y, f_load, f_spring, f_damp)
+        if component_forces_checkbox.value:
+            plotter.plot_component_forces(y, f_spring, f_damp)
+
+
+# create checkbox for each plot to be displayed
+time_domain_response_checkbox = widgets.Checkbox(value=True, description='Time Domain Response')
+displacement_velocity_acceleration_checkbox = widgets.Checkbox(value=True, description='Displacement, Velocity, Acceleration')
+state_space_response_checkbox = widgets.Checkbox(value=True, description='State Space Response')
+forces_in_time_domain_checkbox = widgets.Checkbox(value=True, description='Forces in Time Domain')
+component_forces_checkbox = widgets.Checkbox(value=True, description='Component Forces')
+
+# Callback function for slider changes
+def on_slider_change(change):
+    update_plots(x_0_slider.value, dx_0_slider.value, m1_slider.value, k1_slider.value, c1_slider.value)
+
+# Create sliders
+x_0_slider = widgets.FloatSlider(min=0, max=1, step=0.01, value=0.1, description='Initial Displacement (m):', continuous_update=False)
+dx_0_slider = widgets.FloatSlider(min=-5, max=5, step=0.1, value=0.0, description='Initial Velocity (m/s):', continuous_update=False)
+m1_slider = widgets.FloatSlider(min=1, max=100, step=1, value=16, description='Mass (kg):', continuous_update=False)
+k1_slider = widgets.FloatSlider(min=10, max=1000, step=10, value=348, description='Stiffness (kg/s^2):', continuous_update=False)
+c1_slider = widgets.FloatSlider(min=0.01, max=100, step=0.01, value=0.0501 * 2 * np.sqrt(16 * 348), description='Damping (kg/s):', continuous_update=False)
+
+# Attach the callback function so plots update when controls are changed
+x_0_slider.observe(on_slider_change, names='value')
+dx_0_slider.observe(on_slider_change, names='value')
+m1_slider.observe(on_slider_change, names='value')
+k1_slider.observe(on_slider_change, names='value')
+c1_slider.observe(on_slider_change, names='value')
+
+time_domain_response_checkbox.observe(on_slider_change, names='value')
+displacement_velocity_acceleration_checkbox.observe(on_slider_change, names='value')
+state_space_response_checkbox.observe(on_slider_change, names='value')
+forces_in_time_domain_checkbox.observe(on_slider_change, names='value')
+component_forces_checkbox.observe(on_slider_change, names='value')
+
+
+# Output widget for displaying plots
+plot_output = widgets.Output()
+
+# Arrange sliders and checkboxes vertically
+controls = widgets.VBox([x_0_slider, dx_0_slider, m1_slider, k1_slider, c1_slider,
+                         time_domain_response_checkbox, displacement_velocity_acceleration_checkbox,
+                         state_space_response_checkbox, forces_in_time_domain_checkbox, component_forces_checkbox])
+
+# Create a horizontal box to place sliders next to the plot output
+layout = widgets.HBox([plot_output, controls])
+
+# Display the layout
+display(layout)
+
+# Initialize the plots
+update_plots(x_0_slider.value, dx_0_slider.value, m1_slider.value, k1_slider.value, c1_slider.value)

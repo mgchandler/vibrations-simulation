@@ -13,9 +13,5 @@ The files `freevisc.py`, `freefric.py`, `constforce.py` each include parameters 
 
 Each of the condition scripts defines various parameters related to the system, e.g. mass, stiffness constant, friction coefficient, and initial conditions. The scripts then define the forces acting on the system (free vibration force, a linear spring force, and a friction force) using functions from the `vibrations.py`. Then, the script then defines a function to solve the differential equations of motion using the `odeint` function from the `scipy.integrate` module, and functions to plot the system using the `matplotlib` module.
 
+The notebook `vibration.ipynb` contains interactive code and visualizations for the vibration systems. The notebook uses the `ipywidgets` module to create interactive sliders for the parameters of the system, and the `matplotlib` module to create visualizations of the system. The notebook also uses the `vibrations.py` module to simulate the system under the given conditions. However, the contents of `freevisc.py`, `freefric.py`, and `constforce.py` are copied adapted into the notebook to support interactive use. 
 
-
-
-
-
-vibrations.ipynb: This Jupyter notebook contains interactive code and visualizations for the vibration systems.
