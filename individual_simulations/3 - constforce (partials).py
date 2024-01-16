@@ -8,7 +8,7 @@ from functools import partial
 import matplotlib.pyplot as plt
 import numpy as np
 from scipy.integrate import solve_ivp
-import vibrations as vib
+import vibrations_old as vib
 
 
 # %% Input and system parameters
