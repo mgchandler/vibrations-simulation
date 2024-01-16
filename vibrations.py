@@ -1,4 +1,21 @@
+# -*- coding: utf-8 -*-
+"""
+Created on Tue Sep 19 12:00:52 2023
+
+@authors: 
+    Matt Chandler (m.chander@bristol.ac.uk)
+    Daniel Collins (daniel.collins@bristol.ac.uk)
+    Robert Hughes (robert.hughes@bristol.ac.uk)
+"""
+
+from functools import partial
+import ipywidgets as widgets
+from IPython.display import display, clear_output
+import matplotlib.pyplot as plt
 import numpy as np
+from scipy.integrate import solve_ivp
+import sympy
+from sympy.abc import alpha, epsilon, pi
 
 
 # %% System equation
@@ -17,30 +34,35 @@ def system_1dof(
 
     Parameters
     ----------
-    t : float OR ndarray[float] (M,)
-        Time, either a single value or multiple values in an array.
-    y_t : ndarray[float] (2,) OR ndarray[float] (2, M)
+    t : array_like of float
+        Time, either a single value or multiple values in a 1D array (shape
+        (M,)). 
+    y_t : array_like of float
         State space vector(s) containing displacement in row 0, velocity in row
-        1, evaluated at corresponding time in `t`.
+        1 (0th axis), evaluated at corresponding time in `t`. If multiple 
+        vectors are given, these should be in the columns (1st axis) (shape
+        (2,) or (2, M)).
     mass : float
         Mass of the system.
-    f_load : Callable
+    f_load : callable
         Function which expresses the time-dependent external load applied to
-        the system. Must have signature `f = f_load(t)`, where `t` and `f` both
-        have type `float`.
-    f_spring : Callable
+        the system. Takes an array_like of float as its only argument,
+        returning an array_like of float. Signature `f = f_load(t)`.
+    f_spring : callable
         Function which expresses the restoring elastic force on the system.
-        Must have signature `f = f_spring(x)`, where `x` and `f` both have type
-        `float`.
-    f_damp : Callable
+        Takes an array_like of float as its only argument, returning an
+        array_like of float. Signature `f = f_spring(x)`.
+    f_damp : callable
         Function which expresses the resistive damping force present in the
-        system. Must have signature `f = f_damp(dx)`, where `dx` and `f` both
-        have type `float`.
+        system. Takes an array_like of float as its only argument, returning an
+        array_like of float. Signature `f = f_damp(dx)`.
 
     Returns
     -------
-    dy : ndarray[float] (2,) OR ndarray[float] (2, M)
-        Velocity and acceleration at the point(s) `y_t`.
+    dy : array_like of float
+        Velocity and acceleration at the point(s) `y_t` in row 0 and 1
+        respectively, evaluated at time points given in `t` (shape (2,) or
+        (2, M)).
 
     """
     t = np.asarray(t).squeeze()
@@ -59,84 +81,755 @@ def system_1dof(
         )
 
     # State space vector
-    dy = np.asarray(
-        [
-            y_t[1],
-            (f_load(t) - f_spring(y_t[0]) - f_damp(y_t[1])) / mass,
-        ]
-    )
+    dy = np.asarray([
+        y_t[1],
+        (f_load(t) - f_spring(y_t[0]) - f_damp(y_t[1])) / mass,
+    ])
 
     return dy
 
 
-# %% Force equations
+# %% Forces.
+
+
+class Force:
+    """
+    An object which represents a force requires a list of the variables which
+    are required as input so that only the relevant ones are provided later;
+    a callable, for which variables may be provided; and ideally a printable
+    expression to make it easier to visualise the model.
+
+    Attributes
+    ----------
+    args : set
+        A complete set of unique variables which the force requires to evaluate
+        the result. Each element is an instance of `sympy.core.symbol.Symbol`.
+        It is recommended that the variable name and `sympy` symbol are
+        identical to each other, and identical to the name of the argument in
+        the corresponding callable in `fn`.
+    expr : sympy.core.Expr
+        A printable expression which may be used in addition to other forces to
+        produce an overall expression for the model. Use of `sympy` aids this
+        very well.
+    fn : callable
+        The function which may be evaluated to determine the value of the force
+        for the set of input variables which are named in `args`. Note that at
+        the time when an instance of the `Force` class is defined, no actual
+        numbers are required. Instead, this represents the interaction between
+        the input variables.
+    
+    Examples
+    --------
+    >>> from sympy.abc import alpha
+    >>> b, c_10 = sympy.symbols('b c_10')
+    >>> def arbitrary_force(alpha, b, c_10):
+    ...     return alpha * b + c_10
+    >>> arb = Force(
+    ...     (alpha, b, c_10,),
+    ...     alpha * b + c_10,
+    ...     arbitrary_force,
+    ... )
+    >>> arb.fn(1, 2, 3)
+    5
+
+    """
+
+    def __init__(self, args, expr, fn=None):
+        """
+        Initialises an instance of the `Force` class.
+
+        Parameters
+        ----------
+        args : iter
+            Contains the set of variables which are used as input to `fn`. Note
+            that they do not have to be identical to everything contained in
+            `expr`, but they must be a complete representation of the arguments
+            required for `fn`.
+        expr : sympy.core.Expr
+            An expression which is used for printing the model in a nicely
+            formatted way. Note that `fn` is optional: if `fn` is not provided,
+            then the `expr.lambdify` method is used to determine the callable.
+            This will typically only be possible for quite simple functions
+            (i.e. when a simple `lambda` would typically suffice).
+        fn : callable, optional
+            Callable which is used to evaluate the value of the force. Not
+            required, but it is recommended that it is provided as there are
+            only a handful of instances when the function can be derived from
+            `expr`. The default is None.
+
+        """
+        for arg in args:
+            if not isinstance(arg, sympy.core.symbol.Symbol):
+                raise ValueError(f"arg `{arg}` expected to be a sympy Symbol.")
+        if not isinstance(expr, sympy.core.Expr):
+            raise ValueError(f"expr `{expr}` expected to be a sympy Expression.")
+
+        # `args` are used with `fn` later, can be different to `expr`.
+        self.args = {f"{arg}" for arg in args}
+        self.expr = expr
+        if fn is None:
+            self.fn = sympy.lambdify(args, expr, "numpy")
+        else:
+            self.fn = fn
+
+
+# List of all sympy variables to be used in the following force functions. Note
+# that if any greek letters are required, these should be imported from
+# `sympy.abc` at the beginning of this script.
+t, x, v, m, k, c, F_0, t_0, f_F0, g, mu, F_r, V_r, F_f = sympy.symbols(
+    "t x v m k c F_0 t_0 f_F0 g mu F_r V_r F_f"
+)
+
 
 # Time-dependent external forcing
 
-
-def f_free(t):
-    """
-    Free vibration.
-    """
-    # Multiply by `t` to ensure that the returned value has the same type.
-    return 0 * t
+# No load applied
+free_vibration = Force((t,), sympy.core.numbers.Float(0), lambda t: 0 * t)
 
 
-def f_const(t, F_0, t_F0):
+def const_load_fn(t, F_0, t_0):
     """
-    Constant force `F_0` applied after some time `t_F0`.
+    Turn the force on after some time, i.e. when Δt > 0.
+    If `t` is a 1D ndarray then `.squeeze()` should do nothing; if `t` is a
+    float then return an object with zero dimensions.
     """
-    # Turn the force on after some time, i.e. when Δt > 0.
-    # If `t` is a 1D ndarray then `.squeeze()` should do nothing; if `t` is a
-    # float then return an object with zero dimensions.
-    sign_t = np.vstack([0 * t, np.sign(t - t_F0)]).max(axis=0).squeeze()
+    sign_t = np.vstack([0 * t, np.sign(t - t_0)]).max(axis=0).squeeze()
     return F_0 * sign_t
 
 
-def f_sin(t, F_0, f_F0):
-    """
-    Sinusoidal force `F_0 * sin(ωt)` with magnitude `F_0` and frequency `f_F0`.
-    """
-    sin_t = np.sin(2 * np.pi * f_F0 * t).squeeze()
-    return F_0 * sin_t
+# Constant force applied after some time t0
+const_load = Force(
+    (t, F_0, t_0),
+    F_0,
+    const_load_fn,
+)
+
+# Sinusoidal force
+sin_load = Force(
+    (t, F_0, f_F0),
+    F_0 * sympy.sin(2 * pi * f_F0 * t),
+    lambda t, F_0, f_F0: F_0 * np.sin(2 * np.pi * f_F0 * t).squeeze(),
+)
 
 
 # Spring equations
 
-
-def f_spring(x, k):
-    """
-    Linear spring equation.
-    """
-    return x * k
+# Equation for a linear spring
+linear_spring = Force(
+    (x, k),
+    x * k,
+)
 
 
 # Damping equations
 
+# Linear viscous damping
+linear_damping = Force(
+    (v, c),
+    v * c,
+)
 
-def f_visc(v, c):
-    """
-    Linear viscous damping equation.
-    """
-    return v * c
+# Sign approximation for friction equation
+sign_friction = Force(
+    (v, m, g, mu),
+    F_f * sympy.sign(v),
+    lambda v, m, g, mu: np.sign(v) * np.abs(m * g * mu),
+)
+
+# Hyperbolic tangent approximation for friction
+tanh_friction = Force(
+    (v, F_r, V_r, m, g, mu),
+    F_f * sympy.tanh(alpha * v),
+    lambda v, F_r, V_r, m, g, mu: np.abs(m * g * mu)
+    * np.tanh(v * np.arctanh(F_r) / V_r),
+)
+
+# Square root approximation for friction
+sqrt_friction = Force(
+    (v, m, g, mu, epsilon),
+    F_f * v / sympy.sqrt(v**2 + epsilon**2),
+    lambda v, m, g, mu, epsilon: (
+        np.abs(m * g * mu) * v / np.sqrt(v**2 + epsilon**2)
+    ),
+)
 
 
-def f_friction_sign(v, F_f):
-    """
-    Sign approximation for friction equation.
-    """
-    return np.sign(v) * F_f
+# %% Plotting
+
+# Collections of forces to be included.
+load_dict = {
+    "Free Vibration": free_vibration,
+    "Constant Force": const_load,
+    "Sinusoidal": sin_load,
+}
+spring_dict = {
+    "Linear": linear_spring,
+}
+damping_dict = {
+    "Linear Viscous": linear_damping,
+    # "Fric Sign": sign_friction,
+    "Friction (tanh)": tanh_friction,
+    "Friction (sqrt)": sqrt_friction,
+}
+# Parameters used when enabling/disabling sliders
+load_params = {"F_0", "t_0", "f_F0"}
+spring_params = {"k"}
+damping_params = {"c", "mu", "F_r", "V_r", "epsilon"}
 
 
-def f_friction_tanh(v, alpha, F_f):
+class VibSimulation:
     """
-    Hyperbolic tangent approxomation for friction equation.
+    Object which does the simulation of the vibrating system, and then produces
+    plots to visualise the system.
+
+    Attributes
+    ----------
+    params : dict
+        Collection of all possible parameters (including the ones which may not
+        not be used for the active model), typically scalar valued.
+    load_list : ipywidgets.widgets.widgets.Dropdown
+        Set of possible loading forces obtained from `load_dict`.
+    spring_list : ipywidgets.widgets.widgets.Dropdown
+        Set of possible spring forces obtained from `spring_dict`.
+    damping_list : ipywidgets.widgets.widgets.Dropdown
+        Set of possible damping forces obtained from `damping_dict`.
+    load : Force
+        The loading force which is currently active.
+    spring : Force
+        The spring force which is currently active.
+    damping : Force
+        The damping force which is currently active.
+    expr : ipywidgets.widgets.widgets.HTMLMath
+        The expression representing the model which has been simulated.
+    sliders : dict[ipywidgets.widgets.widgets.FloatSlider]
+        Sliders allowing each of the parameters to be adjusted. The keys for
+        each slider are identical to the associated value in `params`.
+    checkboxes : dict[ipywidgets.widgets.widgets.Checkbox]
+        Checkboxes allowing the user to enable / disable a given plot, if only
+        interested in a handful.
+    plot_output : ipywidgets.widgets.widgets.Output
+        Where the plots are stored.
+    controls : ipywidgets.widgets.widgets.VBox
+        Where each of the interactive elements are stored. Contains (`expr`,
+        `load_list`, `spring_list`, `damping_list`, `*sliders`, `*checkboxes`)
+    layout : ipywidgets.widgets.widgets.HBox
+        The complete layout which is drawn in the notebook.
+
+    Methods
+    -------
+    run_simulation():
+        Simulates the system with the current values which have been entered.
+    on_load_change(_):
+        Updates `self.load` to contain the new loading force chosen by the user
+        and updates the plots.
+    on_spring_change(_):
+        Updates `self.spring` to contain the new spring force chosen by the
+        user and updates the plots.
+    on_damping_change(_):
+        Updates `self.damping` to contain the new damping force chosen by the
+        user and updates the plots.
+    write_expression():
+        Updates the model expression based on the currently active forces.
+    on_slider_change(_):
+        When a slider is interacted with, extract the new value and store it in
+        `self.params`.
+    on_checkbox_change(_):
+        When a checkbox is toggled, update the figures only drawing the ones
+        which are desired.
+    update_figs():
+        Redraw all of the desired figures based on the current values of the
+        parameters.
     """
-    return np.tanh(alpha * v) * F_f
+
+    def __init__(self, N_sa=50, N_Td=20):
+        """
+        Produces a set of figures to adjust SHM behaviour, using HTML widgets.
+        As such, it is required that this is run from a jupyter notebook.
+
+        Parameters
+        ----------
+        N_sa : int, optional
+            Number of samples per period to model. The default is 50.
+        N_Td : int, optional
+            Number of periods to integrate over. The default is 20.
+        """
+        wgt_width = "400px"
+        desc_width = "120px"
+
+        # Initialise force lists
+        self.load_list = widgets.Dropdown(
+            options     = tuple(load_dict.keys()),
+            value       = list(load_dict.keys())[0],
+            description = "External force:",
+            style       = {"description_width": desc_width},
+            layout      = {"width": wgt_width},
+        )
+        self.load_list.observe(self.on_load_change, names="value")
+        self.load = load_dict[self.load_list.value]
+
+        self.spring_list = widgets.Dropdown(
+            options     = tuple(spring_dict.keys()),
+            value       = list(spring_dict.keys())[0],
+            description = "Spring force:",
+            style       = {"description_width": desc_width},
+            layout      = {"width": wgt_width},
+        )
+        self.spring_list.observe(self.on_spring_change, names="value")
+        self.spring = spring_dict[self.spring_list.value]
+
+        self.damping_list = widgets.Dropdown(
+            options     = tuple(damping_dict.keys()),
+            value       = list(damping_dict.keys())[0],
+            description = "Damping force:",
+            style       = {"description_width": desc_width},
+            layout      = {"width": wgt_width},
+        )
+        self.damping_list.observe(self.on_damping_change, names="value")
+        self.damping = damping_dict[self.damping_list.value]
+
+        # Initialise summary of properties
+        self.expr = widgets.HTMLMath(
+            value       = "",
+            placeholder = "expr",
+            description = "Model expression:",
+            style       = {"description_width": desc_width},
+            layout      = {"width": wgt_width},
+        )
+        self.write_expression()
+
+        # Initialise parameters and sliders
+        self.params = {
+            "x_0": 0.1,
+            "v_0": 0.0,
+            "m": 8.0,
+            "k": 348.0,
+            "c": 7.5,
+            "F_0": 1.0,
+            "t_0": 1.0,
+            "f_F0": 1.0,
+            "g": 9.81,
+            "mu": 0.0019,
+            "F_r": 0.99,
+            "V_r": 1e-4,
+            "t_init": 0,
+            "N_sa": 50,
+            "N_Td": 20,
+            "epsilon": 1e-4,
+        }
+
+        self.sliders = {
+            "x_0": widgets.FloatSlider(
+                value=self.params["x_0"],
+                min=0.0,
+                max=1.0,
+                step=0.01,
+                description="Init $x_0$ (m)",
+                style={"description_width": desc_width},
+                layout={"width": wgt_width},
+                continuous_update=False,
+            ),
+            "v_0": widgets.FloatSlider(
+                value=self.params["v_0"],
+                min=0.0,
+                max=5.0,
+                step=0.1,
+                description = "Init $v_0$ (m s$^{-1}$)",
+                style={"description_width": desc_width},
+                layout={"width": wgt_width},
+                continuous_update=False,
+            ),
+            "m": widgets.FloatSlider(
+                value=self.params["m"],
+                min=1.0,
+                max=100.0,
+                step=1.0,
+                description="$m$ (kg)",
+                style={"description_width": desc_width},
+                layout={"width": wgt_width},
+                continuous_update=False,
+            ),
+            "k": widgets.FloatSlider(
+                value=self.params["k"],
+                min=100.0,
+                max=5000.0,
+                step=10.0,
+                description="$k$ (kg s$^{-2}$)",
+                style={"description_width": desc_width},
+                layout={"width": wgt_width},
+                continuous_update=False,
+            ),
+            "c": widgets.FloatSlider(
+                value=self.params["c"],
+                min=0.0,
+                max=50.0,
+                step=0.01,
+                description="$c$ (kg s$^{-1}$)",
+                style={"description_width": desc_width},
+                layout={"width": wgt_width},
+                continuous_update=False,
+            ),
+            "F_0": widgets.FloatSlider(
+                value=self.params["F_0"],
+                min=0.1,
+                max=10.0,
+                step=0.1,
+                description="$F_0$ (N)",
+                style={"handle_color": "lightgray", "description_width": desc_width},
+                layout={"width": wgt_width},
+                disabled=True,
+                continuous_update=False,
+            ),
+            "t_0": widgets.FloatSlider(
+                value=self.params["t_0"],
+                min=0.01,
+                max=10.0,
+                step=0.1,
+                description="$t_0$ (s)",
+                style={"handle_color": "lightgray", "description_width": desc_width},
+                layout={"width": wgt_width},
+                disabled=True,
+                continuous_update=False,
+            ),
+            "f_F0": widgets.FloatSlider(
+                description="$f_{F0}$ (Hz)",
+                min=0.1,
+                max=5.0,
+                step=0.1,
+                value=self.params["f_F0"],
+                style={"handle_color": "lightgray", "description_width": desc_width},
+                layout={"width": wgt_width},
+                disabled=True,
+                continuous_update=False,
+            ),
+            "mu": widgets.FloatSlider(
+                value=self.params["mu"],
+                min=0.1,
+                max=5.0,
+                step=0.1,
+                description="$\mu$",
+                style={"handle_color": "lightgray", "description_width": desc_width},
+                layout={"width": wgt_width},
+                disabled=True,
+                continuous_update=False,
+            ),
+            "F_r": widgets.FloatSlider(
+                value=self.params["F_r"],
+                min=0.0,
+                max=1.0,
+                step=0.01,
+                description="$F_{reach}$",
+                style={"handle_color": "lightgray", "description_width": desc_width},
+                layout={"width": wgt_width},
+                disabled=True,
+                continuous_update=False,
+            ),
+            "V_r": widgets.FloatSlider(
+                value=self.params["V_r"],
+                min=0.1,
+                max=5.0,
+                step=0.1,
+                description="$V_{reach}$ (m s$^{-1}$)",
+                style={"handle_color": "lightgray", "description_width": desc_width},
+                layout={"width": wgt_width},
+                disabled=True,
+                continuous_update=False,
+            ),
+        }
+        [self.sliders[arg].observe(self.on_slider_change) for arg in self.sliders.keys()]
+
+        self.checkboxes = {
+            "dva": widgets.Checkbox(
+                value=True,
+                description="Displacement, velocity,\nacceleration response",
+                style={"description_width": desc_width},
+                layout={"width": "500px"},
+            ),
+            "forces": widgets.Checkbox(
+                value=True,
+                description="Forces in time domain",
+                style={"description_width": desc_width},
+                layout={"width": wgt_width},
+            ),
+            "state-space": widgets.Checkbox(
+                value=False,
+                description="State space response",
+                style={"description_width": desc_width},
+                layout={"width": wgt_width},
+            ),
+        }
+        [self.checkboxes[arg].observe(self.on_checkbox_change) for arg in self.checkboxes.keys()]
+
+        self.plot_output = widgets.Output()
+        self.controls = widgets.VBox([
+            self.expr,
+            self.load_list,
+            self.spring_list,
+            self.damping_list,
+            *self.sliders.values(),
+            *self.checkboxes.values(),
+        ])
+        self.layout = widgets.HBox([self.plot_output, self.controls])
+
+        # Draw the first frame
+        display(self.layout)
+        self.update_figs()
+
+    def run_simulation(self):
+        """Compute the solution for the current set of parameters."""
+        self.f_load = partial(
+            self.load.fn,
+            **{key: val for key, val in self.params.items() if key in self.load.args},
+        )
+        self.f_spring = partial(
+            self.spring.fn,
+            **{key: val for key, val in self.params.items() if key in self.spring.args},
+        )
+        self.f_damping = partial(
+            self.damping.fn,
+            **{
+                key: val for key, val in self.params.items() if key in self.damping.args
+            },
+        )
+
+        t_period = 2 * np.pi * np.sqrt(self.params["m"] / self.params["k"])
+        self.soln = solve_ivp(
+            system_1dof,
+            [self.params["t_init"], t_period * self.params["N_Td"]],
+            [self.params["x_0"], self.params["v_0"]],
+            args=(self.params["m"], self.f_load, self.f_spring, self.f_damping),
+            t_eval=np.linspace(
+                self.params["t_init"],
+                t_period * self.params["N_Td"],
+                round(
+                    (t_period * self.params["N_Td"] - self.params["t_init"])
+                    * self.params["N_sa"]
+                    / t_period
+                ),
+            ),
+            rtol=1e-8,
+            atol=1e-8,
+        )
+
+        ddy = system_1dof(
+            self.soln.t,
+            self.soln.y,
+            self.params["m"],
+            self.f_load,
+            self.f_spring,
+            self.f_damping,
+        )[1]
+        self.y = np.vstack([self.soln.y, ddy])
+
+    def on_load_change(self, _):
+        """Update the GUI based on the new loading force."""
+        self.load = load_dict[self.load_list.value]
+        self.write_expression()
+
+        # Update sliders
+        for param in self.sliders.keys():
+            if param in load_params:
+                if param in self.load.args:
+                    self.sliders[param].style.handle_color = "white"
+                    self.sliders[param].disabled = False
+                else:
+                    self.sliders[param].style.handle_color = "lightgray"
+                    self.sliders[param].disabled = True
+
+        self.update_figs()
+
+    def on_spring_change(self, _):
+        """Update the GUI based on the new spring force."""
+        self.spring = spring_dict[self.spring_list.value]
+        self.write_expression()
+
+        # Update sliders
+        for param in self.sliders.keys():
+            if param in spring_params:
+                if param in self.spring.args:
+                    self.sliders[param].style.handle_color = "white"
+                    self.sliders[param].disabled = False
+                else:
+                    self.sliders[param].style.handle_color = "lightgray"
+                    self.sliders[param].disabled = True
+
+        self.update_figs()
+
+    def on_damping_change(self, _):
+        """Update the GUI based on the new damping force."""
+        self.damping = damping_dict[self.damping_list.value]
+        self.write_expression()
+
+        # Update sliders
+        for param in self.sliders.keys():
+            if param in damping_params:
+                if param in self.damping.args:
+                    self.sliders[param].style.handle_color = "white"
+                    self.sliders[param].disabled = False
+                else:
+                    self.sliders[param].style.handle_color = "lightgray"
+                    self.sliders[param].disabled = True
+
+        self.update_figs()
+
+    def write_expression(self):
+        """Update the model expression from the newly selected forces."""
+        self.expr.value = "${}$".format(
+            sympy.printing.latex(
+                sympy.Eq(self.load.expr, self.spring.expr + self.damping.expr)
+            )
+        )
+
+    def on_slider_change(self, _):
+        """Extract the new parameter values and update the GUI."""
+        for arg in self.sliders.keys():
+            self.params[arg] = self.sliders[arg].value
+
+        self.update_figs()
+
+    def on_checkbox_change(self, _):
+        """Update the GUI based on the new selection of figures."""
+        self.update_figs()
+
+    def update_figs(self):
+        """Redraw all of the selected figures based on the user input."""
+        self.write_expression()
+        self.run_simulation()
+
+        with self.plot_output:
+            clear_output(wait=True)
+            
+            # Initialise figure.
+            num_plots = 1
+            hratios = [1]
+            if self.checkboxes["dva"].value:
+                num_plots += 2
+                hratios.append(.5)
+                hratios.append(.5)
+            if self.checkboxes["forces"].value:
+                num_plots += 1
+                hratios.append(.5)
+                
+            fig1, axs = plt.subplots(
+                num_plots,
+                1,
+                sharex=True,
+                height_ratios=hratios,
+                figsize=(6, 8),
+                dpi=100
+            )
+            plot_idx = 0
+            if num_plots == 1:
+                axs = [axs]
+            
+            # Displacement figure.
+            axs[plot_idx].grid()
+            axs[plot_idx].plot(
+                self.soln.t,
+                self.f_load(self.soln.t) / self.params["k"],
+                "r--",
+                linewidth=2,
+                label="Static response",
+            )
+            axs[plot_idx].plot(
+                self.soln.t,
+                self.y[0, :],
+                "k",
+                linewidth=2,
+                label="Dynamic response",
+            )
+            axs[plot_idx].scatter(
+                self.params["t_init"],
+                self.params["x_0"],
+                s=100,
+                c="w",
+                marker="o",
+                edgecolors="C2",
+                linewidths=2,
+            )
+            axs[plot_idx].text(
+                self.params["t_init"],
+                self.params["x_0"],
+                "IC: [$t_0$ = {:.2g}s, $x_0$ = {:.2g}m]".format(
+                    self.params["t_init"], self.params["x_0"]
+                ),
+            )
+            axs[plot_idx].set_ylabel("Displacement\n$x$ (m)")
+            axs[plot_idx].set_title("Time domain response of the 1 DOF system")
+            axs[plot_idx].legend(loc="upper right")
+            
+            # Velocity and acceleration figure.
+            if self.checkboxes["dva"].value:
+                plot_idx += 1
+                axs[plot_idx].grid()
+                axs[plot_idx].plot(self.soln.t, self.y[1, :], "k")
+                axs[plot_idx].set_ylabel("Velocity\n$v$ (ms$^{-1}$)")
+                plot_idx += 1
+                axs[plot_idx].grid()
+                axs[plot_idx].plot(self.soln.t, self.y[2, :], "k")
+                axs[plot_idx].set_ylabel("Acceleration\n$a$ (ms$^{-2}$)")
+            
+            # Component forces.
+            if self.checkboxes["forces"].value:
+                plot_idx += 1
+                axs[plot_idx].grid()
+                axs[plot_idx].plot(
+                    self.soln.t,
+                    self.f_load(self.soln.t),
+                    "r",
+                    label="External forcing",
+                )
+                axs[plot_idx].plot(
+                    self.soln.t,
+                    self.f_spring(self.y[0, :]),
+                    "g", 
+                    label="Spring force",
+                )
+                axs[plot_idx].plot(
+                    self.soln.t,
+                    self.f_damping(self.y[1, :]),
+                    "b",
+                    label="Damping force",
+                )
+                axs[plot_idx].set_ylabel("Force\n$F$ (N)")
+                axs[plot_idx].legend(loc="upper right")
+            
+            axs[-1].set_xlabel("Time (s)")
+            fig1.tight_layout()
+            plt.show()
+
+            # State space response.
+            if self.checkboxes["state-space"].value:
+                fig, ax = plt.subplots(1, 1, figsize=(6, 4), dpi=100)
+                ax.grid()
+                ax.plot(self.y[0, :], self.y[1, :], "k", linewidth=2)
+                ax.scatter(
+                    self.y[0, 0],
+                    self.y[1, 0],
+                    s=100,
+                    c="w",
+                    marker="o",
+                    edgecolors="C2",
+                    linewidths=2,
+                )
+                plt.text(
+                    self.y[0, 0],
+                    self.y[1, 0],
+                    "IC: [$x_0$ = {:.2g}s, $v_0$ = {:.2g}m]".format(
+                        self.y[0, 0], self.y[1, 0]
+                    ),
+                    verticalalignment="bottom",
+                    horizontalalignment="right",
+                )
+                ax.set_xlabel("Displacement (m)")
+                ax.set_ylabel("Velocity (ms$^{-1}$)")
+                ax.set_title("Response of the 1 DOF system in the state space")
+                fig.tight_layout()
+                plt.show()
+            return
 
 
-def f_friction_sqrt(v, F_f, eps=1e-4):
-    """
-    Sqrt approximation of sign for friction equation.
-    """
-    return F_f * v / np.sqrt(v**2 + eps**2)
+#%%
+if __name__ == "__main__":
+    # This will plot the default state - to use the interactive one, import
+    # this in a Jupyter notebook.
+    fig = VibSimulation()
