@@ -408,7 +408,7 @@ class VibSimulation:
             "f_F0":     1.0,    # [Hz] frequency of sinusoidal force
             "g":        9.81,   # [m s^{-2}] gravitational acceleration
             "mu":       0.0019, # [-] coefficient of friction
-            "F_r":      0.99,   # [-] portion of F_f to be reached in V_reach
+            "F_r":      0.99,   # [-] portion of F_f to be reached in V_r
             "V_r":      0.0001, # [m s^{-1}] velocity to reach F_r portion of F_f
             "t_init":   0.,     # [s] initial time of integration
             "epsilon":  0.0001, # [-] ?
