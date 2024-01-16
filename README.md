@@ -5,9 +5,9 @@ This repository contains code for the demonstration of physical vibration system
 The home directory contains two files of interest: the script `vibrations.py` which contains the simulation model and an interactive GUI, and the Jupyter notebook `Vibrations Simulation.ipynb` which walks through the simulation and runs the GUI.
 
 The folder `individual_simulations` contains three non-interactive implementations of the vibrating system:
-- `freevisc`: a free viscous model with expression $0 = cv + kx$.
-- `freefric`: a free friction model with expression $0 = F_r v + kx$.
-- `constforce`: a model which applies a constant force after some time has elapsed, with expression $F_0 = cv + kx$.
+- `freevisc`: a free viscous model with equation $0 = cv + kx$.
+- `freefric`: a free friction model with equation $0 = F_r v + kx$.
+- `constforce`: a model which applies a constant force after some time has elapsed, with equation $F_0 = cv + kx$.
 
 Each of these models has two implementations, identified with `partials` and `lambdas`. These indicate how the forces are implemented in Python: `partials` makes use of functions and fills individual arguments using `functools.partials`, whereas `lambdas` uses anonymous functions. These additional scripts are included as an example to the user of how you might go about simulating this more simply in Python, as the use of the `VibSimulation` class in the interactive version is quite complex, and complicated by the requirement to include widgets, plots, etc.
 

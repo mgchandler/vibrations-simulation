@@ -300,7 +300,7 @@ class VibSimulation:
     damping : Force
         The damping force which is currently active.
     expr : ipywidgets.widgets.widgets.HTMLMath
-        The expression representing the model which has been simulated.
+        The equation representing the model which has been simulated.
     sliders : dict[ipywidgets.widgets.widgets.FloatSlider]
         Sliders allowing each of the parameters to be adjusted. The keys for
         each slider are identical to the associated value in `params`.
@@ -328,8 +328,8 @@ class VibSimulation:
     on_damping_change(_):
         Updates `self.damping` to contain the new damping force chosen by the
         user and updates the plots.
-    write_expression():
-        Updates the model expression based on the currently active forces.
+    write_equation():
+        Updates the model equation based on the currently active forces.
     on_slider_change(_):
         When a slider is interacted with, extract the new value and store it in
         `self.params`.
@@ -341,7 +341,7 @@ class VibSimulation:
         parameters.
     """
 
-    def __init__(self, N_sa=50, N_Td=20):
+    def __init__(self, N_sa=250, N_Td=20):
         """
         Produces a set of figures to adjust SHM behaviour, using HTML widgets.
         As such, it is required that this is run from a jupyter notebook.
@@ -391,30 +391,29 @@ class VibSimulation:
         self.expr = widgets.HTMLMath(
             value       = "",
             placeholder = "expr",
-            description = "Model expression:",
+            description = "Model equation:",
             style       = {"description_width": desc_width},
             layout      = {"width": wgt_width},
         )
-        self.write_expression()
 
         # Initialise parameters and sliders
         self.params = {
-            "x_0": 0.1,
-            "v_0": 0.0,
-            "m": 8.0,
-            "k": 348.0,
-            "c": 7.5,
-            "F_0": 1.0,
-            "t_0": 1.0,
-            "f_F0": 1.0,
-            "g": 9.81,
-            "mu": 0.0019,
-            "F_r": 0.99,
-            "V_r": 1e-4,
-            "t_init": 0,
-            "N_sa": 50,
-            "N_Td": 20,
-            "epsilon": 1e-4,
+            "x_0":      0.1,    # [m] initial displacement in t_init
+            "v_0":      0.0,    # [m s^{-2}] initial velocity in t_init
+            "m":        8.0,    # [kg] mass
+            "k":      348.0,    # [kg s^{-2}] (linear) stiffness constant
+            "c":        7.5,    # [kg s^{-1}] viscous damping constant
+            "F_0":      1.0,    # [N] magnitude of constant force
+            "t_0":      1.0,    # [N] start time of constant force
+            "f_F0":     1.0,    # [Hz] frequency of sinusoidal force
+            "g":        9.81,   # [m s^{-2}] gravitational acceleration
+            "mu":       0.0019, # [-] coefficient of friction
+            "F_r":      0.99,   # [-] portion of F_f to be reached in V_reach
+            "V_r":      0.0001, # [m s^{-1}] velocity to reach F_r portion of F_f
+            "t_init":   0.,     # [s] initial time of integration
+            "epsilon":  0.0001, # [-] ?
+            "N_sa":    50,      # [-] number of samples per damped period
+            "N_Td":    20,      # [-] number of damped periods for integration
         }
 
         self.sliders = {
@@ -540,7 +539,7 @@ class VibSimulation:
         self.checkboxes = {
             "dva": widgets.Checkbox(
                 value=True,
-                description="Displacement, velocity,\nacceleration response",
+                description="Velocity, acceleration response",
                 style={"description_width": desc_width},
                 layout={"width": "500px"},
             ),
@@ -586,9 +585,7 @@ class VibSimulation:
         )
         self.f_damping = partial(
             self.damping.fn,
-            **{
-                key: val for key, val in self.params.items() if key in self.damping.args
-            },
+            **{key: val for key, val in self.params.items() if key in self.damping.args},
         )
 
         t_period = 2 * np.pi * np.sqrt(self.params["m"] / self.params["k"])
@@ -623,7 +620,6 @@ class VibSimulation:
     def on_load_change(self, _):
         """Update the GUI based on the new loading force."""
         self.load = load_dict[self.load_list.value]
-        self.write_expression()
 
         # Update sliders
         for param in self.sliders.keys():
@@ -640,7 +636,6 @@ class VibSimulation:
     def on_spring_change(self, _):
         """Update the GUI based on the new spring force."""
         self.spring = spring_dict[self.spring_list.value]
-        self.write_expression()
 
         # Update sliders
         for param in self.sliders.keys():
@@ -657,7 +652,6 @@ class VibSimulation:
     def on_damping_change(self, _):
         """Update the GUI based on the new damping force."""
         self.damping = damping_dict[self.damping_list.value]
-        self.write_expression()
 
         # Update sliders
         for param in self.sliders.keys():
@@ -671,8 +665,8 @@ class VibSimulation:
 
         self.update_figs()
 
-    def write_expression(self):
-        """Update the model expression from the newly selected forces."""
+    def write_equation(self):
+        """Update the model equation from the newly selected forces."""
         self.expr.value = "${}$".format(
             sympy.printing.latex(
                 sympy.Eq(self.load.expr, self.spring.expr + self.damping.expr)
@@ -692,7 +686,7 @@ class VibSimulation:
 
     def update_figs(self):
         """Redraw all of the selected figures based on the user input."""
-        self.write_expression()
+        self.write_equation()
         self.run_simulation()
 
         with self.plot_output:
@@ -701,20 +695,23 @@ class VibSimulation:
             # Initialise figure.
             num_plots = 1
             hratios = [1]
+            height = 3.2
             if self.checkboxes["dva"].value:
                 num_plots += 2
                 hratios.append(.5)
                 hratios.append(.5)
+                height += 3.2
             if self.checkboxes["forces"].value:
                 num_plots += 1
                 hratios.append(.5)
+                height += 1.6
                 
             fig1, axs = plt.subplots(
                 num_plots,
                 1,
                 sharex=True,
                 height_ratios=hratios,
-                figsize=(6, 8),
+                figsize=(6, height),
                 dpi=100
             )
             plot_idx = 0
@@ -754,7 +751,7 @@ class VibSimulation:
                 ),
             )
             axs[plot_idx].set_ylabel("Displacement\n$x$ (m)")
-            axs[plot_idx].set_title("Time domain response of the 1 DOF system")
+            axs[plot_idx].set_title("Time domain response")
             axs[plot_idx].legend(loc="upper right")
             
             # Velocity and acceleration figure.
@@ -822,7 +819,7 @@ class VibSimulation:
                 )
                 ax.set_xlabel("Displacement (m)")
                 ax.set_ylabel("Velocity (ms$^{-1}$)")
-                ax.set_title("Response of the 1 DOF system in the state space")
+                ax.set_title("State space response")
                 fig.tight_layout()
                 plt.show()
             return
