@@ -2,7 +2,7 @@
 
 This repository contains code for the demonstration of physical vibration systems under various conditions. It was developed for use with the Vibrations component of the Dynamics and Control unit at the University of Bristol.
 
-The home directory contains two files of interest: the script `vibrations.py` which contains the simulation model and an interactive GUI, and the Jupyter notebook `Vibrations Simulation.ipynb` which walks through the simulation and instatiates the GUI.
+The home directory contains two files of interest: the script `vibrations.py` which contains the simulation model and an interactive GUI, and the Jupyter notebook `Vibrations Simulation.ipynb` which walks through the simulation and runs the GUI.
 
 ## Using this simulation
 
