@@ -14,6 +14,7 @@ This project is implemented in Python, and the following modules are required in
 - `ipywidgets`
 - `IPython`
 - `sympy`
+
 All of these modules are available in the default installation which comes with Anaconda.
 
 Download this repo and load the Jupyter client. Make sure that the files `vibrations.py` and `Vibrations Simulation.ipynb` are both found in the same directory. Open the file `Vibrations Simulation.ipynb` and run the code cell. This will produce an interactive simulation which allows the user to investigate the effects of each parameter on the vibrating system.
