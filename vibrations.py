@@ -15,7 +15,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 from scipy.integrate import solve_ivp
 import sympy
-from sympy.abc import alpha, epsilon, pi
+# from sympy.abc import alpha, delta, epsilon, omega, pi, zeta
 
 
 # %% System equation
@@ -174,17 +174,24 @@ class Force:
 
 
 # List of all sympy variables to be used in the following force functions. Note
-# that if any greek letters are required, these should be imported from
-# `sympy.abc` at the beginning of this script.
-t, x, v, m, k, c, F_0, t_0, f_F0, g, mu, F_r, V_r, F_f = sympy.symbols(
-    "t x v m k c F_0 t_0 f_F0 g mu F_r V_r F_f"
+# that if any greek letters are required, these can be imported from `sympy.abc`
+# at the beginning of this script, or defined as you would in LaTeX.
+t, x, v, m, k, c, F_0, t_0, f_F0, g, mu, F_r, V_r, F_f, f_0, f_d, T_d, c_cr, F_f = sympy.symbols(
+    "t x v m k c F_0 t_0 f_F0 g mu F_r V_r F_f f_0 f_d T_d c_cr F_f"
+)
+alpha, delta, epsilon, omega_0, omega_d, pi, zeta_0 = sympy.symbols(
+    "\alpha \delta \epsilon \omega_0 \omega_d \pi \zeta_0"
 )
 
 
 # Time-dependent external forcing
 
 # No load applied
-free_vibration = Force((t,), sympy.core.numbers.Float(0), lambda t: 0 * t)
+free_vibration = Force(
+    (t,),
+    sympy.core.numbers.Integer(0),
+    lambda t: 0 * t
+)
 
 
 def const_load_fn(t, F_0, t_0):
@@ -223,6 +230,13 @@ linear_spring = Force(
 
 # Damping equations
 
+# Undamped
+undamped = Force(
+    (v,),
+    sympy.core.numbers.Integer(0),
+    lambda v: 0 * v
+)
+
 # Linear viscous damping
 linear_damping = Force(
     (v, c),
@@ -241,7 +255,7 @@ tanh_friction = Force(
     (v, F_r, V_r, m, g, mu),
     F_f * sympy.tanh(alpha * v),
     lambda v, F_r, V_r, m, g, mu: np.abs(m * g * mu)
-    * np.tanh(v * np.arctanh(F_r) / V_r),
+        * np.tanh(v * np.arctanh(F_r) / V_r),
 )
 
 # Square root approximation for friction
@@ -256,7 +270,8 @@ sqrt_friction = Force(
 
 # %% Plotting
 
-# Collections of forces to be included.
+# Collections of forces to be included. If a new force is added, make sure to
+# also add it to these dictionaries with an appropriate name.
 load_dict = {
     "Free Vibration": free_vibration,
     "Constant Force": const_load,
@@ -266,6 +281,7 @@ spring_dict = {
     "Linear": linear_spring,
 }
 damping_dict = {
+    "Undamped": undamped,
     "Linear Viscous": linear_damping,
     # "Fric Sign": sign_friction,
     "Friction (tanh)": tanh_friction,
@@ -398,22 +414,25 @@ class VibSimulation:
 
         # Initialise parameters and sliders
         self.params = {
-            "x_0":      0.1,    # [m] initial displacement in t_init
-            "v_0":      0.0,    # [m s^{-2}] initial velocity in t_init
-            "m":        8.0,    # [kg] mass
-            "k":      348.0,    # [kg s^{-2}] (linear) stiffness constant
-            "c":        7.5,    # [kg s^{-1}] viscous damping constant
-            "F_0":      1.0,    # [N] magnitude of constant force
-            "t_0":      1.0,    # [N] start time of constant force
-            "f_F0":     1.0,    # [Hz] frequency of sinusoidal force
-            "g":        9.81,   # [m s^{-2}] gravitational acceleration
-            "mu":       0.0019, # [-] coefficient of friction
-            "F_r":      0.99,   # [-] portion of F_f to be reached in V_r
-            "V_r":      0.0001, # [m s^{-1}] velocity to reach F_r portion of F_f
+            # Input parameters which also have sliders
+            "x_0":  0.1,    # [m] initial displacement in t_init
+            "v_0":  0.0,    # [m s^{-2}] initial velocity in t_init
+            "m":    8.0,    # [kg] mass
+            "k":  348.0,    # [kg s^{-2}] (linear) stiffness constant
+            "c":    7.5,    # [kg s^{-1}] viscous damping constant
+            "F_0":  1.0,    # [N] magnitude of constant force
+            "t_0":  1.0,    # [N] start time of constant force
+            "f_F0": 1.0,    # [Hz] frequency of sinusoidal force
+            "mu":   0.0019, # [-] coefficient of friction
+            "F_r":  0.99,   # [-] portion of F_f to be reached in V_r
+            "V_r":  0.0001, # [m s^{-1}] velocity to reach F_r portion of F_f
+            
+            # Parameters which are default valued.
             "t_init":   0.,     # [s] initial time of integration
+            "g":        9.81,   # [m s^{-2}] gravitational acceleration
             "epsilon":  0.0001, # [-] ?
-            "N_sa":    50,      # [-] number of samples per damped period
-            "N_Td":    20,      # [-] number of damped periods for integration
+            "N_sa":    N_sa,    # [-] number of samples per damped period
+            "N_Td":    N_Td,    # [-] number of damped periods for integration
         }
 
         self.sliders = {
@@ -557,6 +576,14 @@ class VibSimulation:
             ),
         }
         [self.checkboxes[arg].observe(self.on_checkbox_change) for arg in self.checkboxes.keys()]
+        
+        self.derived_params = widgets.HTMLMath(
+            value       = "",
+            placeholder = "params",
+            description = "Derived parameters:",
+            style       = {"description_width": desc_width},
+            layout      = {"width": wgt_width},
+        )
 
         self.plot_output = widgets.Output()
         self.controls = widgets.VBox([
@@ -566,6 +593,7 @@ class VibSimulation:
             self.damping_list,
             *self.sliders.values(),
             *self.checkboxes.values(),
+            self.derived_params,
         ])
         self.layout = widgets.HBox([self.plot_output, self.controls])
 
@@ -683,10 +711,51 @@ class VibSimulation:
     def on_checkbox_change(self, _):
         """Update the GUI based on the new selection of figures."""
         self.update_figs()
+        
+    def update_derived_params(self):
+        """Update the system parameters which are derived from inputs."""  
+        derived_params = {}
+        derived_params[omega_0] = np.sqrt(self.params["k"] / self.params["m"])
+                # [rad s^{-1}] undamped natural angular frequency
+        derived_params[f_0] = derived_params[omega_0] / (2 * np.pi)
+                # [Hz] undamped natural frequency
+                
+        if self.damping_list.value != "Undamped":
+            derived_params[delta] = self.params["c"] / (2 * self.params["m"])
+                    # [s^{-1}] rate of exponential decay / rise
+            derived_params[zeta_0] = derived_params[delta] / derived_params[omega_0]
+                    # [-] damping ratio
+            if derived_params[zeta_0] < 1:
+                derived_params[omega_d] = derived_params[omega_0] * np.sqrt(
+                    1 - derived_params[zeta_0]**2
+                )   # [rad s^{-1}] damped angular natural frequency
+                derived_params[f_d] = derived_params[omega_d] / (2 * np.pi)
+                    # [Hz] damped natural frequency
+                derived_params[T_d] = 1/ derived_params[f_d]
+                    # [s] period of free damped response
+            else:
+                derived_params[omega_d] = 0
+                derived_params[f_d] = 0
+                derived_params[T_d] = np.inf
+        
+            derived_params[c_cr] = 2 * np.sqrt(
+                self.params["m"] * self.params["k"]
+            )       # [kg s^{-1}] critical damping constant
+        
+        if "Friction" in self.damping_list.value:
+            derived_params[F_f] = abs(
+                self.params["m"] * self.params["g"] * self.params["mu"]
+            )       # [N] magnitude of friction force
+        
+        self.derived_params.value = "<br>".join(
+            "${}$ = {:.4g}".format(sympy.printing.latex(key), value) for key, value in derived_params.items()
+        )
+        
 
     def update_figs(self):
         """Redraw all of the selected figures based on the user input."""
         self.write_equation()
+        self.update_derived_params()
         self.run_simulation()
 
         with self.plot_output:
