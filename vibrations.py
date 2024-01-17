@@ -15,7 +15,6 @@ import matplotlib.pyplot as plt
 import numpy as np
 from scipy.integrate import solve_ivp
 import sympy
-# from sympy.abc import alpha, delta, epsilon, omega, pi, zeta
 
 
 # %% System equation
@@ -176,11 +175,11 @@ class Force:
 # List of all sympy variables to be used in the following force functions. Note
 # that if any greek letters are required, these can be imported from `sympy.abc`
 # at the beginning of this script, or defined as you would in LaTeX.
-t, x, v, m, k, c, F_0, t_0, f_F0, g, mu, F_r, V_r, F_f, f_0, f_d, T_d, c_cr, F_f = sympy.symbols(
-    "t x v m k c F_0 t_0 f_F0 g mu F_r V_r F_f f_0 f_d T_d c_cr F_f"
+t, x, v, m, k, c, F_0, t_0, f_F0, g, mu, F_prop, v_r, F_f, f_0, f_d, T_d, c_cr, F_f = sympy.symbols(
+    "t x v m k c F_0 t_0 f_F0 g mu F_prop v_r F_f f_0 f_d T_d c_cr F_f"
 )
 alpha, delta, epsilon, omega_0, omega_d, pi, zeta_0 = sympy.symbols(
-    "\alpha \delta \epsilon \omega_0 \omega_d \pi \zeta_0"
+    "\\alpha \\delta \\epsilon \\omega_0 \\omega_d \\pi \\zeta_0"
 )
 
 
@@ -189,7 +188,7 @@ alpha, delta, epsilon, omega_0, omega_d, pi, zeta_0 = sympy.symbols(
 # No load applied
 free_vibration = Force(
     (t,),
-    sympy.core.numbers.Integer(0),
+    sympy.Integer(0),
     lambda t: 0 * t
 )
 
@@ -233,7 +232,7 @@ linear_spring = Force(
 # Undamped
 undamped = Force(
     (v,),
-    sympy.core.numbers.Integer(0),
+    sympy.Integer(0),
     lambda v: 0 * v
 )
 
@@ -252,10 +251,10 @@ sign_friction = Force(
 
 # Hyperbolic tangent approximation for friction
 tanh_friction = Force(
-    (v, F_r, V_r, m, g, mu),
+    (v, F_prop, v_r, m, g, mu),
     F_f * sympy.tanh(alpha * v),
-    lambda v, F_r, V_r, m, g, mu: np.abs(m * g * mu)
-        * np.tanh(v * np.arctanh(F_r) / V_r),
+    lambda v, F_prop, v_r, m, g, mu: np.abs(m * g * mu)
+        * np.tanh(v * np.arctanh(F_prop) / v_r),
 )
 
 # Square root approximation for friction
@@ -283,14 +282,14 @@ spring_dict = {
 damping_dict = {
     "Undamped": undamped,
     "Linear Viscous": linear_damping,
-    # "Fric Sign": sign_friction,
-    "Friction (tanh)": tanh_friction,
-    "Friction (sqrt)": sqrt_friction,
+    "Coulomb Friction (sign)": sign_friction,
+    "Coulomb Friction (tanh)": tanh_friction,
+    "Coulomb Friction (sqrt)": sqrt_friction,
 }
 # Parameters used when enabling/disabling sliders
 load_params = {"F_0", "t_0", "f_F0"}
 spring_params = {"k"}
-damping_params = {"c", "mu", "F_r", "V_r", "epsilon"}
+damping_params = {"c", "mu", "F_prop", "v_r", "epsilon"}
 
 
 class VibSimulation:
@@ -395,7 +394,7 @@ class VibSimulation:
 
         self.damping_list = widgets.Dropdown(
             options     = tuple(damping_dict.keys()),
-            value       = list(damping_dict.keys())[0],
+            value       = list(damping_dict.keys())[1],
             description = "Damping force:",
             style       = {"description_width": desc_width},
             layout      = {"width": wgt_width},
@@ -415,24 +414,24 @@ class VibSimulation:
         # Initialise parameters and sliders
         self.params = {
             # Input parameters which also have sliders
-            "x_0":  0.1,    # [m] initial displacement in t_init
-            "v_0":  0.0,    # [m s^{-2}] initial velocity in t_init
-            "m":    8.0,    # [kg] mass
-            "k":  348.0,    # [kg s^{-2}] (linear) stiffness constant
-            "c":    7.5,    # [kg s^{-1}] viscous damping constant
-            "F_0":  1.0,    # [N] magnitude of constant force
-            "t_0":  1.0,    # [N] start time of constant force
-            "f_F0": 1.0,    # [Hz] frequency of sinusoidal force
-            "mu":   0.0019, # [-] coefficient of friction
-            "F_r":  0.99,   # [-] portion of F_f to be reached in V_r
-            "V_r":  0.0001, # [m s^{-1}] velocity to reach F_r portion of F_f
+            "x_0":     0.1,    # [m] initial displacement in t_init
+            "v_0":     0.0,    # [m s^{-2}] initial velocity in t_init
+            "m":       8.0,    # [kg] mass
+            "k":     348.0,    # [kg s^{-2}] (linear) stiffness constant
+            "c":       7.5,    # [kg s^{-1}] viscous damping constant
+            "F_0":     1.0,    # [N] magnitude of constant force
+            "t_0":     1.0,    # [N] start time of constant force
+            "f_F0":    1.0,    # [Hz] frequency of sinusoidal force
+            "mu":      0.0019, # [-] coefficient of friction
+            "F_prop":  0.99,   # [-] fraction of F_f when v = v_r
+            "v_r":     0.01, # [m s^{-1}] velocity at which F_{D,Coulomb} = F_prop * F_f
+            "epsilon": 0.01, # [m s^{-1}] velocity at which F_{D,Coulomb} = F_f / sqrt(2)
             
             # Parameters which are default valued.
-            "t_init":   0.,     # [s] initial time of integration
-            "g":        9.81,   # [m s^{-2}] gravitational acceleration
-            "epsilon":  0.0001, # [-] ?
-            "N_sa":    N_sa,    # [-] number of samples per damped period
-            "N_Td":    N_Td,    # [-] number of damped periods for integration
+            "t_init":  0.,     # [s] initial time of integration
+            "g":       9.81,   # [m s^{-2}] gravitational acceleration
+            "N_sa": N_sa,      # [-] number of samples per damped period
+            "N_Td": N_Td,      # [-] number of damped periods for integration
         }
 
         self.sliders = {
@@ -442,6 +441,7 @@ class VibSimulation:
                 max=1.0,
                 step=0.01,
                 description="Init $x_0$ (m)",
+                tooltip="Initial displacement",
                 style={"description_width": desc_width},
                 layout={"width": wgt_width},
                 continuous_update=False,
@@ -452,6 +452,7 @@ class VibSimulation:
                 max=5.0,
                 step=0.1,
                 description = "Init $v_0$ (m s$^{-1}$)",
+                tooltip="Initial velocity",
                 style={"description_width": desc_width},
                 layout={"width": wgt_width},
                 continuous_update=False,
@@ -462,6 +463,7 @@ class VibSimulation:
                 max=100.0,
                 step=1.0,
                 description="$m$ (kg)",
+                tooltip="Mass",
                 style={"description_width": desc_width},
                 layout={"width": wgt_width},
                 continuous_update=False,
@@ -472,6 +474,7 @@ class VibSimulation:
                 max=5000.0,
                 step=10.0,
                 description="$k$ (kg s$^{-2}$)",
+                tooltip="Linear stiffness constant",
                 style={"description_width": desc_width},
                 layout={"width": wgt_width},
                 continuous_update=False,
@@ -482,6 +485,7 @@ class VibSimulation:
                 max=50.0,
                 step=0.01,
                 description="$c$ (kg s$^{-1}$)",
+                tooltip="Viscous damping constant",
                 style={"description_width": desc_width},
                 layout={"width": wgt_width},
                 continuous_update=False,
@@ -492,6 +496,7 @@ class VibSimulation:
                 max=10.0,
                 step=0.1,
                 description="$F_0$ (N)",
+                tooltip="Magnitude of constant force",
                 style={"handle_color": "lightgray", "description_width": desc_width},
                 layout={"width": wgt_width},
                 disabled=True,
@@ -500,20 +505,22 @@ class VibSimulation:
             "t_0": widgets.FloatSlider(
                 value=self.params["t_0"],
                 min=0.01,
-                max=10.0,
+                max=15.0,
                 step=0.1,
                 description="$t_0$ (s)",
+                tooltip="Time at which constant force applied",
                 style={"handle_color": "lightgray", "description_width": desc_width},
                 layout={"width": wgt_width},
                 disabled=True,
                 continuous_update=False,
             ),
             "f_F0": widgets.FloatSlider(
-                description="$f_{F0}$ (Hz)",
+                value=self.params["f_F0"],
                 min=0.1,
                 max=5.0,
                 step=0.1,
-                value=self.params["f_F0"],
+                description="$f_{F0}$ (Hz)",
+                tooltip="Frequency of sinusoidal force",
                 style={"handle_color": "lightgray", "description_width": desc_width},
                 layout={"width": wgt_width},
                 disabled=True,
@@ -522,35 +529,52 @@ class VibSimulation:
             "mu": widgets.FloatSlider(
                 value=self.params["mu"],
                 min=0.1,
-                max=5.0,
-                step=0.1,
+                max=2.0,
+                step=0.05,
                 description="$\mu$",
+                tooltip="Coefficient of friction",
                 style={"handle_color": "lightgray", "description_width": desc_width},
                 layout={"width": wgt_width},
                 disabled=True,
                 continuous_update=False,
             ),
-            "F_r": widgets.FloatSlider(
-                value=self.params["F_r"],
-                min=0.0,
+            "F_prop": widgets.FloatSlider(
+                value=self.params["F_prop"],
+                min=0.01,
                 max=1.0,
                 step=0.01,
-                description="$F_{reach}$",
+                description="$F_{prop}$",
+                tooltip="Fraction of friction force when v = v_r",
                 style={"handle_color": "lightgray", "description_width": desc_width},
                 layout={"width": wgt_width},
                 disabled=True,
                 continuous_update=False,
             ),
-            "V_r": widgets.FloatSlider(
-                value=self.params["V_r"],
-                min=0.1,
-                max=5.0,
-                step=0.1,
-                description="$V_{reach}$ (m s$^{-1}$)",
+            "v_r": widgets.FloatSlider(
+                value=self.params["v_r"],
+                min=0.0001,
+                max=0.01,
+                step=0.0001,
+                description="$v_r$ (m s$^{-1}$)",
+                tooltip="Velocity at which friction force is F_prop F_f",
                 style={"handle_color": "lightgray", "description_width": desc_width},
                 layout={"width": wgt_width},
                 disabled=True,
                 continuous_update=False,
+                readout_format='.3e',
+            ),
+            "epsilon": widgets.FloatSlider(
+                value=self.params["epsilon"],
+                min=0.0001,
+                max=0.001,
+                step=0.0001,
+                description="$\epsilon$ (m s$^{-1}$)",
+                tooltip="Velocity at which friction force is F_f / sqrt(2)",
+                style={"handle_color": "lightgray", "description_width": desc_width},
+                layout={"width": wgt_width},
+                disabled=True,
+                continuous_update=False,
+                readout_format='.3e',
             ),
         }
         [self.sliders[arg].observe(self.on_slider_change) for arg in self.sliders.keys()]
@@ -748,7 +772,7 @@ class VibSimulation:
             )       # [N] magnitude of friction force
         
         self.derived_params.value = "<br>".join(
-            "${}$ = {:.4g}".format(sympy.printing.latex(key), value) for key, value in derived_params.items()
+            "${} = {}$".format(sympy.printing.latex(key), sympy.Float(value, 4)) for key, value in derived_params.items()
         )
         
 
