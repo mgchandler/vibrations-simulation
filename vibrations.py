@@ -444,9 +444,9 @@ class VibSimulation:
             # Parameters which are default valued.
             't_init':  0.,     # [s] initial time of integration
             'g':       9.81,   # [m s^{-2}] gravitational acceleration
-            'N_sa': N_sa,      # [-] number of samples per damped period
-            'N_Td': N_Td,      # [-] number of damped periods for integration
-            'solver': solver   # [-] which solver to use for integration.
+            'N_sa':     N_sa,  # [-] number of samples per damped period
+            'N_Td':     N_Td,  # [-] number of damped periods for integration
+            'solver': solver,  # [-] which solver to use for integration.
         }
 
         self.sliders = {
